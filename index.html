@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>TreeOne File Sharing</title>
+</head>
+<body>
+    <div id="webpages"></div>
+
+    <script>
+        let username = "";
+        let showingStats = false;
+
+        let loginPage = `
+            <div style="padding: 1rem">
+                <h1>Welcome to TreeOne File Sharing</h1>
+                <p>Enter a username and click Login:</p>
+                <form id="loginForm">
+                    <input type="text" id="usernameToLogin" placeholder="Enter username" required>
+                    <button type="button" id="loginButton">Login</button>
+                </form>
+            </div>
+        `;
+
+        let treeOnePage = `
+            <div style="padding: 1rem">
+                <div style="text-align: right;">
+                    <button id="statisticsButton">Show Statistics</button>
+                </div>
+                <div id="statistics"></div>
+                
+                <h1>Welcome to TreeOne File Sharing</h1>
+                <h2>File Operations</h2>
+
+                <button id="listButton">Refresh File List</button>
+                <div id="fileList"><p>No files found.</p></div>
+
+                <h3>Upload File</h3>
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <input type="file" id="fileToUpload" name="file">
+                    <button type="submit" id="uploadButton">Upload</button>
+                </form>
+
+                <h3>Download File</h3>
+                <input type="text" id="fileToDownload" placeholder="Enter filename to download">
+                <button id="downloadButton">Download</button>
+
+                <h3>Delete File</h3>
+                <input type="text" id="fileToDelete" placeholder="Enter filename to delete">
+                <button id="deleteButton">Delete</button>
+
+                <div class="logout">
+                    <br><br>
+                    <button id="logoutButton">Logout</button>
+                </div>
+            </div>
+        `;
+        
+        //check if the user is login from cookies
+        const cookies = document.cookie.split(";").map(cookie=>cookie.trim());
+        for(const cookie of cookies){
+            if(cookie.startsWith("user=")){
+                username = decodeURIComponent(cookie.substring("user".length+1));
+                break;
+            }
+        }
+
+        //show OneTree page if logged in, otherwiser show login page
+        if(username === ""){
+            showLogin();  
+        } 
+        else{
+            showTreeOne();
+        }
+
+
+        function showLogin(){
+            //show login page
+            document.getElementById("webpages").innerHTML = loginPage;
+
+            //add function to Login button
+            document.getElementById("loginButton").addEventListener("click", async()=>{
+                //get the entered username
+                let usernameToLogin = document.getElementById("usernameToLogin");
+                usernameToLogin = usernameToLogin.value.trim();
+
+                //login with the given username
+                if(usernameToLogin){
+                    //assign it if gotten
+                    username = usernameToLogin;
+                    
+                    //send login request and get response
+                    let response = await fetch("/api/login",{
+                        method: "POST",
+                        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                        body: "username=" + encodeURIComponent(username),
+                        credentials: "include"
+                    });
+
+                    //show TreeOne page if server responded ok
+                    response = await response.json();
+                    if(response.status === "ok"){
+                        showTreeOne();
+                    } 
+                    else{
+                        alert(response);
+                    }
+                }
+
+                //send an alert if no username is entered
+                else{
+                    
+                    alert("Please enter a username to login.");
+                }
+            });
+        }
+
+        function showTreeOne(){
+            //show TreeOne page and refresh the file list
+            document.getElementById("webpages").innerHTML = treeOnePage;
+            refreshFileList();
+
+            //add function to Refresh File List button
+            document.getElementById("listButton").addEventListener("click", refreshFileList);
+
+            //add function to Upload button
+            document.getElementById("uploadForm").addEventListener("submit", async(event)=>{
+                //prevent page reload
+                event.preventDefault();
+
+                //get the file
+                let file = document.getElementById("fileToUpload");
+                file = file.files[0];
+
+                //pop an alert if no file is chosen yet
+                if(!file){
+                    alert("No file chosen");
+                    return
+                }
+
+                //prepare file for upload
+                const body = new FormData();
+                body.append("file", file);
+
+                //send the file, get response and pop alert
+                let response = await fetch(`/api/push?file=${encodeURIComponent(file.name)}`, {method: "POST", body: body, credentials: "include"});
+                response = await response.json();
+                alert(response.message);
+
+                //refresh list after uploading file
+                refreshFileList(); 
+            });
+
+            //add function to Download button
+            document.getElementById("downloadButton").addEventListener("click", async()=>{
+                const filename = document.getElementById("fileToDownload").value.trim();
+                if(filename){
+                    downloadFile(filename);   
+                }
+                else{
+                    alert("Enter filename to download");
+                }
+            });
+
+            //add function to Delete button
+            document.getElementById("deleteButton").addEventListener("click", async()=>{
+                const filename = document.getElementById("fileToDelete").value.trim();
+                if(filename){
+                    deleteFile(filename); 
+                }
+                else{
+                    alert("Enter filename to download");
+                }  
+            });
+
+            //add function to Logout button
+            document.getElementById("logoutButton").addEventListener("click", async()=>{
+                await fetch("/api/login", {method: "DELETE", credentials: "include"});
+                username = "";
+                alert("Logged out");
+                showLogin();
+            });
+
+            //add function to Statistics button
+            document.getElementById("statisticsButton").addEventListener("click", async()=>{
+                //get needed elements
+                const statistics = document.getElementById("statistics");
+                const statisticsButton = document.getElementById("statisticsButton");
+
+                //hide statistics table if it's currently showing
+                if(showingStats){
+                    statistics.innerHTML = "";
+                    statisticsButton.textContent = "Show Statistics";
+                    showingStats = false;
+                    return;
+                }
+
+                //show statistics table if it's not currently showing
+                else{
+                    //send stats request and get response
+                    let response = await fetch('/api/stats', {credentials: "include"});
+                    response = await response.json();
+
+                    //pop alert if no statistics gotten
+                    if(response.status !== "ok"){
+                        alert("Failed to get statistics");
+                        return;
+                    }
+                    else if(Object.keys(response.stats).length === 0){
+                        alert("No statistics yet");
+                        return;
+                    }
+
+                    //make header of statistics table
+                    let statisticsTable = `
+                    <br>
+                    <table border="1" cellpadding="6" cellspacing="0">
+                        <tr style="background-color: ButtonFace; color: ButtonText;">
+                            <th>Filename</th>
+                            <th>Number of Downloads</th>
+                            <th>Average Time (s)</th>
+                        </tr>
+                    `;
+                    
+                    //make body of statistics table
+                    for(let file in response.stats){
+                        const statistics = response.stats[file];
+                        statisticsTable += `<tr>
+                                                <td>${file}</td>
+                                                <td style="text-align: center;">
+                                                    ${statistics["number of downloads"]}
+                                                </td>
+                                                <td style="text-align: center;">
+                                                    ${(statistics["average time"]).toFixed(9)}
+                                                </td>
+                                            </tr>`;
+                    }
+                    statisticsTable += "</table>";
+
+                    //show statistics table and change the button text to Hide Statistics
+                    statistics.innerHTML = statisticsTable;
+                    statisticsButton.textContent = "Hide Statistics";
+                    showingStats = true;
+                }
+            });
+        }
+        
+
+        async function refreshFileList(){
+            //send list request and get response
+            let response = await fetch("/api/list", {method: "GET", credentials: "include"});
+            response = await response.json();
+
+            //if the list is empty show No files found.
+            const fileList = document.getElementById("fileList");
+            if(!response.files || response.files.length === 0){
+                fileList.innerHTML = "<p>No files found.</p>";
+            }
+
+            //make the file list table
+            else{
+                //make table data
+                const table = response.files.map(file => `
+                    <tr>
+                        <td>${file.name}</td>
+                        <td>${file.owner}</td>
+                        <td>${file.size}</td>
+                        <td>${file.timestamp}</td>
+                        <td>
+                            <div>
+                                <button onclick="downloadFile('${file.name}')">Download</button>
+                                <button onclick="deleteFile('${file.name}')">Delete</button>
+                            </div>
+                        </td>
+                    </tr>
+                `).join("");
+                
+                //make table header
+                fileList.innerHTML = `
+                    <table border="1"  cellpadding="6" cellspacing="0">
+                        <br>
+                        <thead>
+                            <tr style="background-color: ButtonFace; color: ButtonText;">
+                                <th>Filename</th>
+                                <th>Owner</th>
+                                <th>Size (MB)</th>
+                                <th>Timestamp</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>${table}</tbody>
+                    </table>
+                `;
+            }
+        }
+
+        async function downloadFile(filename){
+            //send download request and get response from the server
+            let response = await fetch(`/api/get?file=${encodeURIComponent(filename)}`, {method: "GET", credentials: "include"});
+            
+            //download the file if 200
+            if(response.ok){
+                //get url
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+
+                //create an <a> and use it to trigger the download
+                const downloadLink = document.createElement("a");
+                downloadLink.href = url;
+                downloadLink.download = filename;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+
+                //clean up
+                window.URL.revokeObjectURL(url); 
+            }
+
+            //pop an alert if not 200
+            else{
+                
+                response = await response.json();
+                alert(response.message);
+            }  
+        }
+
+        async function deleteFile(filename){
+            let response = await fetch(`/api/delete?file=${encodeURIComponent(filename)}`, {method: "DELETE", credentials: "include"});
+            response = await response.json();
+            alert(response.message);
+            refreshFileList();
+        }
+
+    </script>
+</body>
+</html>
